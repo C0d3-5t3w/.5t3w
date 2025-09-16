@@ -1,12 +1,11 @@
-# core ML / data
-tensorflow>=2.12.0,<3.0
+# core data
 pandas>=1.5.0
 numpy>=1.24.0
-scikit-learn>=1.2.0
 
 # packet capture / parsing
 scapy>=2.4.5
 pyshark>=0.4.2
 
-# utilities (optional but useful)
-matplotlib>=3.6.0
+# utilities
+matplotlib>=3.6.0   # optional: plotting / visualization
+requests>=2.28.0    # for webhook alerts

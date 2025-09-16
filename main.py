@@ -9,6 +9,9 @@ from collections import Counter
 import argparse
 import threading
 
+import subprocess
+import os
+
 import pandas as pd
 import pyshark
 from scapy.all import sniff, Raw
@@ -246,8 +249,33 @@ def monitor(interface):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    parser = argparse.ArgumentParser(description="Rule-based WiFi monitor")
+
+    parser = argparse.ArgumentParser(description="Rule-based WiFi monitor and handshake sniffer")
     parser.add_argument("--interface", type=str, default="wlan1mon", help="Interface name to monitor")
+    parser.add_argument("--handshake-out", type=str, default="/root/5t3whandshakes.pcap", help="Path to save handshake .pcap file (requires root)")
+    parser.add_argument("--capture-handshakes", action="store_true", help="Enable continuous handshake capture to .pcap file")
     args = parser.parse_args()
+
+    if args.capture_handshakes:
+        if os.geteuid() != 0:
+            print("[!] Root permissions required to capture to /root. Please run as root.")
+            exit(1)
+        print(f"[*] Starting continuous handshake capture on {args.interface}, saving to {args.handshake_out}")
+        # Use tcpdump to capture EAPOL (WPA handshake) packets
+        # Filter: ether proto 0x888e (EAPOL)
+        try:
+            while True:
+                proc = subprocess.Popen([
+                    "tcpdump",
+                    "-i", args.interface,
+                    "-w", args.handshake_out,
+                    "ether proto 0x888e"
+                ])
+                proc.wait()
+                print("[!] tcpdump exited, restarting in 5 seconds...")
+                time.sleep(5)
+        except KeyboardInterrupt:
+            print("[!] Handshake capture stopped.")
+            exit(0)
 
     monitor(interface=args.interface)

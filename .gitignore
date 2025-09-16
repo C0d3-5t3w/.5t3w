@@ -7,3 +7,4 @@ share
 *.cfg
 *.save
 *.rs
+__pycache__

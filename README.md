@@ -1,5 +1,7 @@
 # Portable Wi-Fi Monitoring, Network Capture, Port Scanning, Vulnerability Assessment & Association Attack Environment for Raspberry Pi
 
+<img width="600" height="300" alt="5t3w" src="https://github.com/user-attachments/assets/5e3c6270-09db-4a48-9c16-3106f03c6c36" />
+
 ![Wi-Fi Monitor](https://img.shields.io/badge/status-beta-yellow)
 ![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi-red)
 ![Python](https://img.shields.io/badge/python-3.13+-blue)

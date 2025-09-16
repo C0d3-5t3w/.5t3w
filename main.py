@@ -11,6 +11,10 @@ import argparse
 import threading
 import subprocess
 import os
+import re
+import json
+from datetime import datetime
+import ipaddress
 
 import pandas as pd
 import pyshark
@@ -32,6 +36,156 @@ packets_buffer = []
 
 stations = set()
 access_points = set()
+
+# --- Port Scanning Configuration ---
+SCAN_REPORTS_DIR = "/root/5t3wportscans"
+SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
+NMAP_ARGS = ["-sV", "-sC", "-O", "--script=vuln", "-T4"]  # Comprehensive scan
+
+# --- ARP Discovery ---
+def get_arp_table():
+    """Get all IP addresses from ARP table using 'arp -a' command"""
+    try:
+        result = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logging.error(f"ARP command failed: {result.stderr}")
+            return []
+        
+        ip_addresses = []
+        # Parse ARP output format: hostname (ip_address) at mac_address [ether] on interface
+        for line in result.stdout.split('\n'):
+            if line.strip():
+                # Extract IP address using regex
+                ip_match = re.search(r'\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\)', line)
+                if ip_match:
+                    ip = ip_match.group(1)
+                    # Validate IP address
+                    try:
+                        ipaddress.ip_address(ip)
+                        ip_addresses.append(ip)
+                    except ValueError:
+                        continue
+        
+        logging.info(f"Found {len(ip_addresses)} IP addresses in ARP table")
+        return list(set(ip_addresses))  # Remove duplicates
+    
+    except subprocess.TimeoutExpired:
+        logging.error("ARP command timed out")
+        return []
+    except Exception as e:
+        logging.error(f"Error getting ARP table: {e}")
+        return []
+
+def load_scanned_ips():
+    """Load previously scanned IPs from file"""
+    try:
+        if os.path.exists(SCANNED_IPS_FILE):
+            with open(SCANNED_IPS_FILE, 'r') as f:
+                data = json.load(f)
+                return set(data.get('scanned_ips', []))
+        return set()
+    except Exception as e:
+        logging.error(f"Error loading scanned IPs: {e}")
+        return set()
+
+def save_scanned_ips(scanned_ips):
+    """Save scanned IPs to file"""
+    try:
+        os.makedirs(SCAN_REPORTS_DIR, exist_ok=True)
+        with open(SCANNED_IPS_FILE, 'w') as f:
+            json.dump({
+                'scanned_ips': list(scanned_ips),
+                'last_updated': datetime.now().isoformat()
+            }, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving scanned IPs: {e}")
+
+def get_new_clients():
+    """Get list of new IP addresses that haven't been scanned yet"""
+    current_ips = set(get_arp_table())
+    scanned_ips = load_scanned_ips()
+    new_ips = current_ips - scanned_ips
+    
+    if new_ips:
+        logging.info(f"Found {len(new_ips)} new clients: {', '.join(new_ips)}")
+    else:
+        logging.info("No new clients found")
+    
+    return list(new_ips)
+
+def run_nmap_scan(target_ip):
+    """Run nmap scan on target IP and return results"""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(SCAN_REPORTS_DIR, f"scan_{target_ip}_{timestamp}.txt")
+        
+        cmd = ['nmap'] + NMAP_ARGS + ['-oN', output_file, target_ip]
+        logging.info(f"Starting nmap scan on {target_ip}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 10 min timeout
+        
+        if result.returncode == 0:
+            logging.info(f"Scan completed for {target_ip}, report saved to {output_file}")
+            return output_file, result.stdout
+        else:
+            logging.error(f"Nmap scan failed for {target_ip}: {result.stderr}")
+            return None, None
+            
+    except subprocess.TimeoutExpired:
+        logging.error(f"Nmap scan timed out for {target_ip}")
+        return None, None
+    except Exception as e:
+        logging.error(f"Error running nmap scan on {target_ip}: {e}")
+        return None, None
+
+def scan_new_clients():
+    """Main function to scan new clients found via ARP"""
+    logging.info("Starting port scan discovery process...")
+    
+    # Create output directory
+    os.makedirs(SCAN_REPORTS_DIR, exist_ok=True)
+    
+    # Get new clients
+    new_clients = get_new_clients()
+    if not new_clients:
+        return
+    
+    # Load existing scanned IPs
+    scanned_ips = load_scanned_ips()
+    
+    # Scan each new client
+    for ip in new_clients:
+        logging.info(f"Scanning {ip}...")
+        output_file, scan_results = run_nmap_scan(ip)
+        
+        if output_file:
+            # Mark as scanned
+            scanned_ips.add(ip)
+            
+            # Save updated scanned IPs list
+            save_scanned_ips(scanned_ips)
+            
+            # Log summary
+            if scan_results:
+                open_ports = len([line for line in scan_results.split('\n') if '/tcp' in line and 'open' in line])
+                logging.info(f"Scan complete for {ip}: {open_ports} open ports found")
+    
+    logging.info("Port scan discovery process completed")
+
+def continuous_port_scanning(interval_minutes=30):
+    """Continuously scan for new clients at specified interval"""
+    logging.info(f"Starting continuous port scanning (interval: {interval_minutes} minutes)")
+    
+    while True:
+        try:
+            scan_new_clients()
+            time.sleep(interval_minutes * 60)
+        except KeyboardInterrupt:
+            logging.info("Continuous port scanning stopped by user")
+            break
+        except Exception as e:
+            logging.error(f"Error in continuous scanning: {e}")
+            time.sleep(60)  # Wait 1 minute before retrying
 
 # --- OUI Vendor Lookup ---
 def load_oui_db(path="oui.txt"):
@@ -287,6 +441,14 @@ if __name__ == "__main__":
                         help="Suppress terminal output")
     parser.add_argument("--hc22000-dir", type=str, default="/root/5t3whc22000s/",
                         help="Folder to save hc22000 files")
+    parser.add_argument("--port-scan", action="store_true",
+                        help="Enable port scanning of new ARP clients")
+    parser.add_argument("--scan-interval", type=int, default=30,
+                        help="Interval in minutes for continuous port scanning (default: 30)")
+    parser.add_argument("--scan-once", action="store_true",
+                        help="Perform a single port scan and exit")
+    parser.add_argument("--scan-reports-dir", type=str, default="/root/5t3wportscans",
+                        help="Directory to save port scan reports")
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -294,6 +456,24 @@ if __name__ == "__main__":
 
     if args.silence:
         logging.getLogger().setLevel(logging.ERROR)
+
+    # Update global scan reports directory
+    global SCAN_REPORTS_DIR, SCANNED_IPS_FILE
+    SCAN_REPORTS_DIR = args.scan_reports_dir
+    SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
+
+    # Handle port scanning modes
+    if args.scan_once:
+        logging.info("Performing single port scan...")
+        scan_new_clients()
+        logging.info("Single port scan completed, exiting.")
+        return
+    
+    if args.port_scan:
+        logging.info(f"Starting continuous port scanning with {args.scan_interval} minute intervals")
+        t_port_scan = threading.Thread(target=continuous_port_scanning, 
+                                       args=(args.scan_interval,), daemon=True)
+        t_port_scan.start()
 
     # --- Handshake capture with pruning ---
     HANDSHAKE_MAX_SIZE_MB = 100  # max .pcap size before prune

@@ -1,7 +1,7 @@
 # Portable Wi-Fi Monitoring, Network Capture, Port Scanning, Vulnerability Assessment & Association Attack Environment for Raspberry Pi
 
 <div align="center">
-<img align="center" width="600" height="300" alt="5t3w" src="https://github.com/user-attachments/assets/5e3c6270-09db-4a48-9c16-3106f03c6c36" />
+<img width="700" height="250" alt="5t3w" src="https://github.com/user-attachments/assets/5e3c6270-09db-4a48-9c16-3106f03c6c36" />
 </div>
 
 ![Wi-Fi Monitor](https://img.shields.io/badge/status-beta-yellow)
@@ -16,6 +16,10 @@
 ![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen)
 
 A **small and portable, rule-based Wi-Fi monitoring, network capture, port scanning, vulnerability assessment, and association attack environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This lightweight solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, comprehensive vulnerability scanning using nmap NSE scripts, and WiFi association attacks for security testing in a compact, portable package.
+
+<div align="center">
+<img width="700" height="450" alt="5t3wdash" src="https://github.com/user-attachments/assets/7f7ba3c0-63a5-411e-a099-f85d3aa02b4c" />
+</div>
 
 ---
 

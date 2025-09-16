@@ -1,6 +1,14 @@
 ## Portable Wi-Fi Monitoring, Network Capture, Port Scanning & Vulnerability Assessment Environment for Raspberry Pi
 
 ![Wi-Fi Monitor](https://img.shields.io/badge/status-beta-yellow)
+![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi-red)
+![Python](https://img.shields.io/badge/python-3.13+-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Security](https://img.shields.io/badge/security-vulnerability%20scanning-orange)
+![Network](https://img.shields.io/badge/network-monitoring-purple)
+![WiFi](https://img.shields.io/badge/WiFi-packet%20capture-lightblue)
+![Nmap](https://img.shields.io/badge/nmap-NSE%20scripts-darkgreen)
+![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen)
 
 A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, and vulnerability assessment environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, and comprehensive vulnerability scanning using nmap NSE scripts, all in a single Python script.
 

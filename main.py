@@ -612,7 +612,7 @@ def build_deauthentication_frame(destination_mac, source_mac, bssid=None, reason
     ) / Dot11Deauth(reason=reason)
     return frame
 
-def build_probe_request(source_mac, ssid="", bssid="ff:ff:ff:ff:ff:ff", sequence_num=None):
+def build_probe_request(source_mac, ssid="", bssid="", sequence_num=None):
     """Build 802.11 probe request frame"""
     if sequence_num is None:
         sequence_num = random.randint(1, 4095)

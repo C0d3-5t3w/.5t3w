@@ -1,4 +1,4 @@
-## Portable Wi-Fi Monitoring, Network Capture, Port Scanning & Vulnerability Assessment Environment for Raspberry Pi
+## Portable Wi-Fi Monitoring, Network Capture, Port Scanning, Vulnerability Assessment & Association Attack Environment for Raspberry Pi
 
 ![Wi-Fi Monitor](https://img.shields.io/badge/status-beta-yellow)
 ![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi-red)
@@ -8,9 +8,10 @@
 ![Network](https://img.shields.io/badge/network-monitoring-purple)
 ![WiFi](https://img.shields.io/badge/WiFi-packet%20capture-lightblue)
 ![Nmap](https://img.shields.io/badge/nmap-NSE%20scripts-darkgreen)
+![Attacks](https://img.shields.io/badge/WiFi-association%20attacks-red)
 ![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen)
 
-A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, and vulnerability assessment environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, and comprehensive vulnerability scanning using nmap NSE scripts, all in a single Python script.
+A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, vulnerability assessment, and association attack environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, comprehensive vulnerability scanning using nmap NSE scripts, and WiFi association attacks for security testing, all in a single Python script.
 
 ---
 
@@ -48,6 +49,15 @@ A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, and v
   - Integration with existing port scanning for efficient target discovery.  
   - Support for continuous vulnerability monitoring with configurable intervals.  
 
+- **WiFi Association Attacks**  
+  - Deauthentication attacks to disconnect clients from access points.  
+  - Disassociation attacks to force client reconnection.  
+  - Association flood attacks to overwhelm access point resources.  
+  - Automated target discovery from monitored WiFi traffic.  
+  - Comprehensive attack logging and audit trails.  
+  - Support for continuous attack campaigns with configurable intervals.  
+  - Frame crafting using Scapy for precise 802.11 management frame injection.  
+
 - **Multi-interface Support**  
   - Default: `wlan1mon` for Wi-Fi monitoring, `wlan0` for full network capture.  
   - Fully configurable via CLI flags.  
@@ -72,6 +82,7 @@ A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, and v
   - hcxtools (for handshake processing)  
   - nmap (for port scanning)
   - airmon-ng (for easy monitor mode)
+  - netifaces (for network interface management)
 
 ---
 
@@ -157,6 +168,55 @@ sudo python3 main.py \
   --silence
 ```
 
+### Association Attacks
+
+#### Single Deauthentication Attack
+Perform targeted deauthentication attack:
+```bash
+sudo python3 main.py --attack-once --association-attack \
+  --attack-types deauth --attack-target 00:11:22:33:44:55 \
+  --attack-ap 66:77:88:99:aa:bb --attack-count 20
+```
+
+#### Association Flood Attack
+Perform association flood against an access point:
+```bash
+sudo python3 main.py --attack-once --association-attack \
+  --attack-types assoc_flood --attack-ap 66:77:88:99:aa:bb \
+  --attack-ssid "TargetNetwork" --attack-count 50
+```
+
+#### Multiple Attack Types
+Perform combined deauth and disassociation attacks:
+```bash
+sudo python3 main.py --attack-once --association-attack \
+  --attack-types deauth,disassoc --attack-target 00:11:22:33:44:55 \
+  --attack-ap 66:77:88:99:aa:bb --attack-count 15
+```
+
+#### Continuous Association Attacks
+Enable continuous association attacks with automatic target discovery:
+```bash
+sudo python3 main.py --association-attack --attack-types deauth \
+  --attack-interval 5 --attack-logs-dir /root/5t3wattacks/
+```
+
+#### Combined Full Operation
+Run complete monitoring with all attack capabilities:
+```bash
+sudo python3 main.py \
+  --capture-handshakes \
+  --capture-network \
+  --port-scan \
+  --vuln-scan \
+  --association-attack \
+  --attack-types deauth,disassoc \
+  --scan-interval 30 \
+  --vuln-scan-interval 60 \
+  --attack-interval 10 \
+  --silence
+```
+
 ### Command Line Options
 
 | Option | Description | Default |
@@ -177,6 +237,15 @@ sudo python3 main.py \
 | `--vuln-scan-interval` | Interval in minutes for vulnerability scanning | `60` |
 | `--vuln-reports-dir` | Directory to save vulnerability reports | `/root/5t3wvulns` |
 | `--generate-vuln-report` | Generate vulnerability report and exit | `False` |
+| `--association-attack` | Enable WiFi association attacks | `False` |
+| `--attack-types` | Types of attacks: deauth,disassoc,assoc_flood | `deauth` |
+| `--attack-target` | Target MAC address for attacks | `None` |
+| `--attack-ap` | AP MAC address for attacks | `None` |
+| `--attack-ssid` | SSID for association flood attacks | `""` |
+| `--attack-count` | Number of attack frames to send | `10` |
+| `--attack-interval` | Interval in minutes for continuous attacks | `10` |
+| `--attack-once` | Perform single attack and exit | `False` |
+| `--attack-logs-dir` | Directory to save attack logs | `/root/5t3wattacks` |
 | `--silence` | Suppress terminal output | `False` |
 
 ---
@@ -204,6 +273,55 @@ Port scans include:
 - Centralized storage in specified directory
 - Human-readable nmap output format
 - Automatic directory creation
+
+---
+
+## Association Attack Features
+
+### Attack Types
+The association attack system supports multiple WiFi attack vectors:
+
+#### Deauthentication Attacks
+- **Purpose**: Force clients to disconnect from access points
+- **Method**: Sends spoofed deauthentication frames from both AP and client perspectives
+- **Use Cases**: WiFi security testing, forcing WPA handshake capture, network disruption testing
+- **Frame Types**: 802.11 Management frames (subtype 12)
+
+#### Disassociation Attacks  
+- **Purpose**: Force clients to disassociate while maintaining authentication
+- **Method**: Sends spoofed disassociation frames with configurable reason codes
+- **Use Cases**: Testing client reconnection behavior, intermediate disruption
+- **Frame Types**: 802.11 Management frames (subtype 10)
+
+#### Association Flood Attacks
+- **Purpose**: Overwhelm access point resources with fake association requests
+- **Method**: Generates multiple fake client MACs and floods AP with association requests
+- **Use Cases**: DoS testing, AP resource exhaustion testing, capacity testing
+- **Frame Types**: 802.11 Authentication + Association Request frames
+
+### Target Discovery
+- **Automatic Discovery**: Leverages existing WiFi monitoring to identify targets
+- **Manual Targeting**: Supports specific MAC address targeting via command line
+- **Real-time Updates**: Continuously updates target list from monitored traffic
+- **Filter Capabilities**: Distinguishes between access points and client stations
+
+### Attack Execution
+- **Frame Crafting**: Uses Scapy for precise 802.11 frame construction
+- **Sequence Control**: Implements proper sequence numbering for realistic frames  
+- **Timing Control**: Configurable delays between frames and attack rounds
+- **Batch Processing**: Supports sending multiple frames per attack session
+
+### Logging and Audit
+- **Comprehensive Logging**: Records all attack attempts with timestamps
+- **Target Tracking**: Maintains database of attacked targets and success rates
+- **Audit Trail**: JSON-formatted logs for compliance and analysis
+- **Activity Monitoring**: Real-time status updates and attack progress tracking
+
+### Safety Features
+- **Rate Limiting**: Built-in delays to prevent interface overload
+- **Target Validation**: MAC address format validation and sanity checks
+- **Error Handling**: Graceful failure handling with detailed error reporting
+- **Interface Management**: Automatic interface MAC detection and validation
 
 ---
 
@@ -281,6 +399,16 @@ Vulnerabilities are automatically categorized by severity:
 └── vulnerability_report_20250916_160000.txt       # Latest report
 ```
 
+### Association Attack Logs
+```
+/root/5t3wattacks/
+├── attack_targets.json        # Discovered attack targets database
+├── attack_logs.json          # Comprehensive attack audit trail
+├── deauth_session_20250916_143022.log             # Session-specific logs
+├── assoc_flood_session_20250916_143155.log        # Attack type logs
+└── attack_summary_20250916.json                   # Daily attack summary
+```
+
 ---
 
 ## Security Considerations
@@ -289,9 +417,14 @@ Vulnerabilities are automatically categorized by severity:
 - Use responsibly and only on networks you own or have permission to test
 - Port scanning and vulnerability assessment may trigger network security alerts
 - Vulnerability scans can be intrusive and may impact target system performance
-- Consider legal implications before deployment, especially for vulnerability scanning
+- **Association attacks are highly disruptive** and may violate computer crime laws
+- **WiFi attacks can interfere with legitimate network operations** and cause service outages
+- Consider legal implications before deployment, especially for vulnerability scanning and WiFi attacks
 - Monitor disk usage, especially for continuous capture and scanning modes
 - Vulnerability scan results may contain sensitive security information - secure appropriately
 - Some vulnerability tests may cause service disruption on target systems
+- **Association attacks should only be used on networks you own or have explicit permission to test**
+- **Deauthentication and disassociation attacks may violate FCC regulations** in some jurisdictions
+- **Always comply with local laws and regulations regarding WiFi security testing**
 
 ---

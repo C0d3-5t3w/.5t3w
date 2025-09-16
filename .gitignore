@@ -6,3 +6,4 @@ include
 share
 *.cfg
 *.save
+*.rs

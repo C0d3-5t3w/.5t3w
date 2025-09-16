@@ -1169,8 +1169,7 @@ if __name__ == "__main__":
                 display_targets()
             elif args.tui_mode == "interactive":
                 main_tui()
-            
-            return
+            # Removed invalid 'return' statement here
         except ImportError as e:
             logging.error(f"TUI dependencies not available: {e}")
             logging.error("Install with: pip install rich textual")

@@ -249,33 +249,62 @@ def monitor(interface):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-
-    parser = argparse.ArgumentParser(description="Rule-based WiFi monitor and handshake sniffer")
-    parser.add_argument("--interface", type=str, default="wlan1mon", help="Interface name to monitor")
-    parser.add_argument("--handshake-out", type=str, default="/root/5t3whandshakes.pcap", help="Path to save handshake .pcap file (requires root)")
-    parser.add_argument("--capture-handshakes", action="store_true", help="Enable continuous handshake capture to .pcap file")
+    parser = argparse.ArgumentParser(description="Rule-based WiFi monitor and network capture")
+    parser.add_argument("--monitor-iface", type=str, default="wlan1mon",
+                        help="Interface for Wi-Fi monitoring / probe/AP detection")
+    parser.add_argument("--network-iface", type=str, default="wlan0",
+                        help="Interface for full network capture")
+    parser.add_argument("--handshake-out", type=str, default="/root/5t3whandshakes.pcap",
+                        help="Path to save handshake .pcap file")
+    parser.add_argument("--capture-handshakes", action="store_true",
+                        help="Enable continuous handshake capture to .pcap file")
+    parser.add_argument("--network-out", type=str, default="/root/5t3wnet.pcap",
+                        help="Path to save all Wi-Fi traffic .pcap file")
+    parser.add_argument("--capture-network", action="store_true",
+                        help="Enable continuous full network capture to .pcap")
     args = parser.parse_args()
 
-    if args.capture_handshakes:
-        if os.geteuid() != 0:
-            print("[!] Root permissions required to capture to /root. Please run as root.")
-            exit(1)
-        print(f"[*] Starting continuous handshake capture on {args.interface}, saving to {args.handshake_out}")
-        # Use tcpdump to capture EAPOL (WPA handshake) packets
-        # Filter: ether proto 0x888e (EAPOL)
-        try:
-            while True:
-                proc = subprocess.Popen([
-                    "tcpdump",
-                    "-i", args.interface,
-                    "-w", args.handshake_out,
-                    "ether proto 0x888e"
-                ])
-                proc.wait()
-                print("[!] tcpdump exited, restarting in 5 seconds...")
-                time.sleep(5)
-        except KeyboardInterrupt:
-            print("[!] Handshake capture stopped.")
-            exit(0)
+    if os.geteuid() != 0:
+        logging.warning("[!] Root permissions recommended for packet capture")
 
-    monitor(interface=args.interface)
+    # --- Start handshake capture ---
+    if args.capture_handshakes:
+        def handshake_capture():
+            try:
+                while True:
+                    proc = subprocess.Popen([
+                        "tcpdump",
+                        "-i", args.monitor_iface,
+                        "-w", args.handshake_out,
+                        "ether proto 0x888e"
+                    ])
+                    proc.wait()
+                    logging.warning("tcpdump handshake capture exited, restarting in 5s...")
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                logging.info("Handshake capture stopped")
+        t_hs = threading.Thread(target=handshake_capture, daemon=True)
+        t_hs.start()
+        logging.info(f"[*] Continuous handshake capture started on {args.monitor_iface}")
+
+    # --- Start full network capture ---
+    if args.capture_network:
+        def network_capture():
+            try:
+                while True:
+                    proc = subprocess.Popen([
+                        "tcpdump",
+                        "-i", args.network_iface,
+                        "-w", args.network_out
+                    ])
+                    proc.wait()
+                    logging.warning("tcpdump network capture exited, restarting in 5s...")
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                logging.info("Network capture stopped")
+        t_net = threading.Thread(target=network_capture, daemon=True)
+        t_net.start()
+        logging.info(f"[*] Continuous network capture started on {args.network_iface}, saving to {args.network_out}")
+
+    # --- Start rule-based Wi-Fi monitor on monitor-iface ---
+    monitor(interface=args.monitor_iface)

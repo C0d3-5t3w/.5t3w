@@ -60,19 +60,13 @@ A **portable, rule-based Wi-Fi monitoring, network capture, and port scanning en
 
 ## Installation
 
-1. **Install Python dependencies:**
+1. **Use the init script:**
    ```bash
-   pip install -r requirements.txt
+   chmod +x init.sh
+   sudo ./init.sh
    ```
 
-2. **Install system dependencies:**
-   ```bash
-   # On Debian/Ubuntu/Raspberry Pi OS
-   sudo apt update
-   sudo apt install aircrack-ng tcpdump nmap hcxtools
-   ```
-
-3. **Set up monitor mode interface (if needed):**
+2. **Set up monitor mode interface (if needed):**
    ```bash
    sudo airmon-ng start wlan1
    ```

@@ -11,7 +11,7 @@
 ![Attacks](https://img.shields.io/badge/WiFi-association%20attacks-red)
 ![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen)
 
-A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, vulnerability assessment, and association attack environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, comprehensive vulnerability scanning using nmap NSE scripts, and WiFi association attacks for security testing, all in a single Python script.
+A **small and portable, rule-based Wi-Fi monitoring, network capture, port scanning, vulnerability assessment, and association attack environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This lightweight solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, comprehensive vulnerability scanning using nmap NSE scripts, and WiFi association attacks for security testing in a compact, portable package.
 
 ---
 
@@ -64,7 +64,7 @@ A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, vulne
 
 - **Portable RPi Environment**  
   - Lightweight Python-based solution using **Scapy**, **PyShark**, and **tcpdump**.  
-  - Single script deployable on a Raspberry Pi with minimal setup.  
+  - Small and portable package deployable on a Raspberry Pi with minimal setup.  
 
 - **Silence Mode**  
   - Suppress terminal output for silent monitoring or background operations.  

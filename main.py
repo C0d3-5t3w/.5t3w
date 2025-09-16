@@ -1142,6 +1142,10 @@ if __name__ == "__main__":
                         help="Perform single attack and exit")
     parser.add_argument("--attack-logs-dir", type=str, default="/root/5t3wattacks",
                         help="Directory to save attack logs")
+    parser.add_argument("--tui", action="store_true",
+                        help="Launch Terminal User Interface (TUI) mode")
+    parser.add_argument("--tui-mode", type=str, choices=["dashboard", "stats", "targets", "interactive"], 
+                        default="interactive", help="TUI mode to launch")
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -1149,6 +1153,31 @@ if __name__ == "__main__":
 
     if args.silence:
         logging.getLogger().setLevel(logging.ERROR)
+
+    # Handle TUI mode
+    if args.tui:
+        try:
+            from tui import main_tui, run_tui_dashboard, display_quick_stats, display_targets
+            import asyncio
+            
+            if args.tui_mode == "dashboard":
+                logging.info("Starting TUI dashboard mode")
+                asyncio.run(run_tui_dashboard())
+            elif args.tui_mode == "stats":
+                display_quick_stats()
+            elif args.tui_mode == "targets":
+                display_targets()
+            elif args.tui_mode == "interactive":
+                main_tui()
+            
+            return
+        except ImportError as e:
+            logging.error(f"TUI dependencies not available: {e}")
+            logging.error("Install with: pip install rich textual")
+            exit(1)
+        except Exception as e:
+            logging.error(f"TUI error: {e}")
+            exit(1)
 
     # Update global scan reports directory
     SCAN_REPORTS_DIR = args.scan_reports_dir
@@ -1299,3 +1328,5 @@ if __name__ == "__main__":
 
     # --- Start Wi-Fi monitor ---
     monitor(interface=args.monitor_iface, silent=args.silence)
+    
+    # --- <3 ---

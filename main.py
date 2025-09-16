@@ -42,6 +42,16 @@ SCAN_REPORTS_DIR = "/root/5t3wportscans"
 SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
 NMAP_ARGS = ["-sV", "-sC", "-O", "--script=vuln", "-T4"]  # Comprehensive scan
 
+# --- Vulnerability Scanning Configuration ---
+VULN_REPORTS_DIR = "/root/5t3wvulns"
+VULN_SCANNED_IPS_FILE = os.path.join(VULN_REPORTS_DIR, "vuln_scanned_ips.json")
+VULN_SUMMARY_FILE = os.path.join(VULN_REPORTS_DIR, "vulnerability_summary.json")
+NMAP_VULN_ARGS = [
+    "--script", "vuln,exploit,malware,intrusive,auth",
+    "--script-args", "unsafe=1",
+    "-sV", "-sC", "-T4", "--max-retries", "2"
+]  # Comprehensive vulnerability scan
+
 # --- ARP Discovery ---
 def get_arp_table():
     """Get all IP addresses from ARP table using 'arp -a' command"""
@@ -171,6 +181,260 @@ def scan_new_clients():
                 logging.info(f"Scan complete for {ip}: {open_ports} open ports found")
     
     logging.info("Port scan discovery process completed")
+
+# --- Vulnerability Scanning Functions ---
+def load_vuln_scanned_ips():
+    """Load previously vulnerability-scanned IPs from file"""
+    try:
+        if os.path.exists(VULN_SCANNED_IPS_FILE):
+            with open(VULN_SCANNED_IPS_FILE, 'r') as f:
+                data = json.load(f)
+                return set(data.get('vuln_scanned_ips', []))
+        return set()
+    except Exception as e:
+        logging.error(f"Error loading vulnerability scanned IPs: {e}")
+        return set()
+
+def save_vuln_scanned_ips(scanned_ips):
+    """Save vulnerability-scanned IPs to file"""
+    try:
+        os.makedirs(VULN_REPORTS_DIR, exist_ok=True)
+        with open(VULN_SCANNED_IPS_FILE, 'w') as f:
+            json.dump({
+                'vuln_scanned_ips': list(scanned_ips),
+                'last_updated': datetime.now().isoformat()
+            }, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving vulnerability scanned IPs: {e}")
+
+def run_vulnerability_scan(target_ip):
+    """Run comprehensive vulnerability scan on target IP"""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(VULN_REPORTS_DIR, f"vuln_scan_{target_ip}_{timestamp}.txt")
+        xml_output_file = os.path.join(VULN_REPORTS_DIR, f"vuln_scan_{target_ip}_{timestamp}.xml")
+        
+        cmd = ['nmap'] + NMAP_VULN_ARGS + ['-oN', output_file, '-oX', xml_output_file, target_ip]
+        logging.info(f"Starting vulnerability scan on {target_ip}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)  # 20 min timeout
+        
+        if result.returncode == 0:
+            logging.info(f"Vulnerability scan completed for {target_ip}")
+            
+            # Parse and categorize vulnerabilities
+            vulnerabilities = parse_vulnerability_results(result.stdout, target_ip)
+            
+            # Save structured vulnerability data
+            vuln_json_file = os.path.join(VULN_REPORTS_DIR, f"vuln_data_{target_ip}_{timestamp}.json")
+            with open(vuln_json_file, 'w') as f:
+                json.dump({
+                    'target': target_ip,
+                    'scan_time': datetime.now().isoformat(),
+                    'vulnerabilities': vulnerabilities,
+                    'scan_command': ' '.join(cmd)
+                }, f, indent=2)
+            
+            return output_file, vulnerabilities
+        else:
+            logging.error(f"Vulnerability scan failed for {target_ip}: {result.stderr}")
+            return None, []
+            
+    except subprocess.TimeoutExpired:
+        logging.error(f"Vulnerability scan timed out for {target_ip}")
+        return None, []
+    except Exception as e:
+        logging.error(f"Error running vulnerability scan on {target_ip}: {e}")
+        return None, []
+
+def parse_vulnerability_results(scan_output, target_ip):
+    """Parse nmap vulnerability scan output and categorize findings"""
+    vulnerabilities = []
+    current_vuln = None
+    
+    lines = scan_output.split('\n')
+    for line in lines:
+        line = line.strip()
+        
+        # Look for vulnerability script results
+        if '|' in line and any(keyword in line.lower() for keyword in 
+                               ['vuln', 'cve', 'exploit', 'vulnerable', 'security']):
+            
+            # Extract CVE numbers
+            cve_matches = re.findall(r'CVE-\d{4}-\d{4,}', line)
+            
+            # Determine severity based on keywords
+            severity = 'info'
+            if any(keyword in line.lower() for keyword in ['critical', 'high']):
+                severity = 'critical'
+            elif any(keyword in line.lower() for keyword in ['medium', 'moderate']):
+                severity = 'medium'
+            elif any(keyword in line.lower() for keyword in ['low', 'minor']):
+                severity = 'low'
+            elif any(keyword in line.lower() for keyword in ['exploit', 'remote code', 'rce']):
+                severity = 'critical'
+            
+            vuln_entry = {
+                'target': target_ip,
+                'description': line,
+                'severity': severity,
+                'cves': cve_matches,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            vulnerabilities.append(vuln_entry)
+    
+    return vulnerabilities
+
+def update_vulnerability_summary(new_vulnerabilities):
+    """Update the master vulnerability summary file"""
+    try:
+        # Load existing summary
+        summary_data = {'targets': {}, 'last_updated': None, 'total_vulnerabilities': 0}
+        if os.path.exists(VULN_SUMMARY_FILE):
+            with open(VULN_SUMMARY_FILE, 'r') as f:
+                summary_data = json.load(f)
+        
+        # Update with new vulnerabilities
+        for vuln in new_vulnerabilities:
+            target = vuln['target']
+            if target not in summary_data['targets']:
+                summary_data['targets'][target] = {
+                    'critical': 0, 'medium': 0, 'low': 0, 'info': 0,
+                    'last_scan': None, 'vulnerabilities': []
+                }
+            
+            summary_data['targets'][target]['vulnerabilities'].append(vuln)
+            summary_data['targets'][target][vuln['severity']] += 1
+            summary_data['targets'][target]['last_scan'] = vuln['timestamp']
+        
+        # Update totals
+        summary_data['total_vulnerabilities'] = sum(
+            len(target_data['vulnerabilities']) 
+            for target_data in summary_data['targets'].values()
+        )
+        summary_data['last_updated'] = datetime.now().isoformat()
+        
+        # Save updated summary
+        with open(VULN_SUMMARY_FILE, 'w') as f:
+            json.dump(summary_data, f, indent=2)
+            
+        logging.info(f"Updated vulnerability summary: {summary_data['total_vulnerabilities']} total vulnerabilities across {len(summary_data['targets'])} targets")
+        
+    except Exception as e:
+        logging.error(f"Error updating vulnerability summary: {e}")
+
+def get_new_vuln_targets():
+    """Get list of IPs that need vulnerability scanning"""
+    current_ips = set(get_arp_table())
+    vuln_scanned_ips = load_vuln_scanned_ips()
+    new_targets = current_ips - vuln_scanned_ips
+    
+    if new_targets:
+        logging.info(f"Found {len(new_targets)} new targets for vulnerability scanning: {', '.join(new_targets)}")
+    else:
+        logging.info("No new targets found for vulnerability scanning")
+    
+    return list(new_targets)
+
+def scan_vulnerabilities():
+    """Main function to scan for vulnerabilities on new targets"""
+    logging.info("Starting vulnerability scanning process...")
+    
+    # Create output directory
+    os.makedirs(VULN_REPORTS_DIR, exist_ok=True)
+    
+    # Get new targets
+    new_targets = get_new_vuln_targets()
+    if not new_targets:
+        return
+    
+    # Load existing scanned IPs
+    vuln_scanned_ips = load_vuln_scanned_ips()
+    all_vulnerabilities = []
+    
+    # Scan each new target
+    for ip in new_targets:
+        logging.info(f"Vulnerability scanning {ip}...")
+        output_file, vulnerabilities = run_vulnerability_scan(ip)
+        
+        if output_file:
+            # Mark as scanned
+            vuln_scanned_ips.add(ip)
+            
+            # Collect vulnerabilities
+            all_vulnerabilities.extend(vulnerabilities)
+            
+            # Save updated scanned IPs list
+            save_vuln_scanned_ips(vuln_scanned_ips)
+            
+            # Log summary
+            vuln_count = len(vulnerabilities)
+            critical_count = len([v for v in vulnerabilities if v['severity'] == 'critical'])
+            logging.info(f"Vulnerability scan complete for {ip}: {vuln_count} vulnerabilities found ({critical_count} critical)")
+    
+    # Update master summary
+    if all_vulnerabilities:
+        update_vulnerability_summary(all_vulnerabilities)
+    
+    logging.info("Vulnerability scanning process completed")
+
+def continuous_vulnerability_scanning(interval_minutes=60):
+    """Continuously scan for vulnerabilities at specified interval"""
+    logging.info(f"Starting continuous vulnerability scanning (interval: {interval_minutes} minutes)")
+    
+    while True:
+        try:
+            scan_vulnerabilities()
+            time.sleep(interval_minutes * 60)
+        except KeyboardInterrupt:
+            logging.info("Continuous vulnerability scanning stopped by user")
+            break
+        except Exception as e:
+            logging.error(f"Error in continuous vulnerability scanning: {e}")
+            time.sleep(60)  # Wait 1 minute before retrying
+
+def generate_vulnerability_report():
+    """Generate a comprehensive vulnerability report"""
+    try:
+        if not os.path.exists(VULN_SUMMARY_FILE):
+            logging.info("No vulnerability data found")
+            return
+        
+        with open(VULN_SUMMARY_FILE, 'r') as f:
+            summary_data = json.load(f)
+        
+        report_file = os.path.join(VULN_REPORTS_DIR, f"vulnerability_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        
+        with open(report_file, 'w') as f:
+            f.write("=" * 60 + "\n")
+            f.write("5T3W VULNERABILITY SCAN REPORT\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Targets Scanned: {len(summary_data['targets'])}\n")
+            f.write(f"Total Vulnerabilities: {summary_data['total_vulnerabilities']}\n")
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("VULNERABILITY SUMMARY BY TARGET\n")
+            f.write("=" * 60 + "\n")
+            
+            for target, data in summary_data['targets'].items():
+                f.write(f"\nTarget: {target}\n")
+                f.write(f"Last Scan: {data['last_scan']}\n")
+                f.write(f"Critical: {data['critical']}, Medium: {data['medium']}, Low: {data['low']}, Info: {data['info']}\n")
+                f.write("-" * 40 + "\n")
+                
+                for vuln in data['vulnerabilities']:
+                    f.write(f"[{vuln['severity'].upper()}] {vuln['description']}\n")
+                    if vuln['cves']:
+                        f.write(f"CVEs: {', '.join(vuln['cves'])}\n")
+                    f.write(f"Timestamp: {vuln['timestamp']}\n\n")
+        
+        logging.info(f"Vulnerability report generated: {report_file}")
+        return report_file
+        
+    except Exception as e:
+        logging.error(f"Error generating vulnerability report: {e}")
+        return None
 
 def continuous_port_scanning(interval_minutes=30):
     """Continuously scan for new clients at specified interval"""
@@ -449,6 +713,16 @@ if __name__ == "__main__":
                         help="Perform a single port scan and exit")
     parser.add_argument("--scan-reports-dir", type=str, default="/root/5t3wportscans",
                         help="Directory to save port scan reports")
+    parser.add_argument("--vuln-scan", action="store_true",
+                        help="Enable vulnerability scanning of new ARP clients")
+    parser.add_argument("--vuln-scan-interval", type=int, default=60,
+                        help="Interval in minutes for continuous vulnerability scanning (default: 60)")
+    parser.add_argument("--vuln-scan-once", action="store_true",
+                        help="Perform a single vulnerability scan and exit")
+    parser.add_argument("--vuln-reports-dir", type=str, default="/root/5t3wvulns",
+                        help="Directory to save vulnerability scan reports")
+    parser.add_argument("--generate-vuln-report", action="store_true",
+                        help="Generate vulnerability report from existing scan data and exit")
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -460,6 +734,26 @@ if __name__ == "__main__":
     # Update global scan reports directory
     SCAN_REPORTS_DIR = args.scan_reports_dir
     SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
+    
+    # Update global vulnerability reports directory
+    VULN_REPORTS_DIR = args.vuln_reports_dir
+    VULN_SCANNED_IPS_FILE = os.path.join(VULN_REPORTS_DIR, "vuln_scanned_ips.json")
+    VULN_SUMMARY_FILE = os.path.join(VULN_REPORTS_DIR, "vulnerability_summary.json")
+
+    # Handle vulnerability scanning modes
+    if args.vuln_scan_once:
+        logging.info("Performing single vulnerability scan...")
+        scan_vulnerabilities()
+        logging.info("Single vulnerability scan completed, exiting.")
+        exit()
+    
+    if args.generate_vuln_report:
+        logging.info("Generating vulnerability report...")
+        report_file = generate_vulnerability_report()
+        if report_file:
+            logging.info(f"Vulnerability report saved to: {report_file}")
+        logging.info("Report generation completed, exiting.")
+        exit()
 
     # Handle port scanning modes
     if args.scan_once:
@@ -467,6 +761,12 @@ if __name__ == "__main__":
         scan_new_clients()
         logging.info("Single port scan completed, exiting.")
         exit()
+    
+    if args.vuln_scan:
+        logging.info(f"Starting continuous vulnerability scanning with {args.vuln_scan_interval} minute intervals")
+        t_vuln_scan = threading.Thread(target=continuous_vulnerability_scanning, 
+                                       args=(args.vuln_scan_interval,), daemon=True)
+        t_vuln_scan.start()
     
     if args.port_scan:
         logging.info(f"Starting continuous port scanning with {args.scan_interval} minute intervals")

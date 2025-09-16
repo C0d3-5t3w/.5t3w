@@ -1,8 +1,8 @@
-## Portable Wi-Fi Monitoring, Network Capture & Port Scanning Environment for Raspberry Pi
+## Portable Wi-Fi Monitoring, Network Capture, Port Scanning & Vulnerability Assessment Environment for Raspberry Pi
 
 ![Wi-Fi Monitor](https://img.shields.io/badge/status-beta-yellow)
 
-A **portable, rule-based Wi-Fi monitoring, network capture, and port scanning environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, and intelligent port scanning of network clients, all in a single Python script.
+A **portable, rule-based Wi-Fi monitoring, network capture, port scanning, and vulnerability assessment environment** designed to run on **Raspberry Pi** devices with multiple Wi-Fi interfaces. This solution supports real-time monitoring, packet capture, probe/AP tracking, automated WPA handshake processing, intelligent port scanning of network clients, and comprehensive vulnerability scanning using nmap NSE scripts, all in a single Python script.
 
 ---
 
@@ -30,6 +30,15 @@ A **portable, rule-based Wi-Fi monitoring, network capture, and port scanning en
   - Organized report storage with timestamped scan results.  
   - Continuous scanning mode with configurable intervals.  
   - Single-scan mode for one-time assessments.  
+
+- **Vulnerability Assessment**  
+  - Comprehensive vulnerability scanning using nmap NSE scripts.  
+  - Automated detection of CVEs, exploits, and security weaknesses.  
+  - Intelligent vulnerability categorization (Critical, Medium, Low, Info).  
+  - Structured vulnerability reports with severity ratings and remediation guidance.  
+  - Master vulnerability database with historical tracking.  
+  - Integration with existing port scanning for efficient target discovery.  
+  - Support for continuous vulnerability monitoring with configurable intervals.  
 
 - **Multi-interface Support**  
   - Default: `wlan1mon` for Wi-Fi monitoring, `wlan0` for full network capture.  
@@ -107,14 +116,36 @@ Enable continuous port scanning with custom interval:
 sudo python3 main.py --port-scan --scan-interval 30 --scan-reports-dir /root/5t3wportscans/
 ```
 
+### Vulnerability Scanning
+
+#### Single Vulnerability Scan
+Perform a one-time vulnerability scan of new clients:
+```bash
+sudo python3 main.py --vuln-scan-once --vuln-reports-dir /root/5t3wvulns/
+```
+
+#### Continuous Vulnerability Scanning
+Enable continuous vulnerability scanning with custom interval:
+```bash
+sudo python3 main.py --vuln-scan --vuln-scan-interval 60 --vuln-reports-dir /root/5t3wvulns/
+```
+
+#### Generate Vulnerability Report
+Create a comprehensive vulnerability report from existing scan data:
+```bash
+sudo python3 main.py --generate-vuln-report --vuln-reports-dir /root/5t3wvulns/
+```
+
 #### Combined Monitoring and Scanning
-Run full monitoring with handshake capture and port scanning:
+Run full monitoring with handshake capture, port scanning, and vulnerability assessment:
 ```bash
 sudo python3 main.py \
   --capture-handshakes \
   --capture-network \
   --port-scan \
-  --scan-interval 60 \
+  --vuln-scan \
+  --scan-interval 30 \
+  --vuln-scan-interval 60 \
   --silence
 ```
 
@@ -133,6 +164,11 @@ sudo python3 main.py \
 | `--scan-once` | Perform single port scan and exit | `False` |
 | `--scan-interval` | Interval in minutes for port scanning | `30` |
 | `--scan-reports-dir` | Directory to save port scan reports | `/root/5t3wportscans` |
+| `--vuln-scan` | Enable continuous vulnerability scanning | `False` |
+| `--vuln-scan-once` | Perform single vulnerability scan and exit | `False` |
+| `--vuln-scan-interval` | Interval in minutes for vulnerability scanning | `60` |
+| `--vuln-reports-dir` | Directory to save vulnerability reports | `/root/5t3wvulns` |
+| `--generate-vuln-report` | Generate vulnerability report and exit | `False` |
 | `--silence` | Suppress terminal output | `False` |
 
 ---
@@ -163,6 +199,44 @@ Port scans include:
 
 ---
 
+## Vulnerability Scanning Features
+
+### Comprehensive NSE Script Coverage
+The vulnerability scanner uses an extensive collection of nmap NSE scripts:
+- **Vulnerability Detection**: `--script vuln` for known CVE identification
+- **Exploit Detection**: `--script exploit` for available exploits
+- **Malware Detection**: `--script malware` for backdoor and malware identification
+- **Authentication Testing**: `--script auth` for weak authentication mechanisms
+- **Intrusive Testing**: `--script intrusive` for comprehensive security assessment
+
+### Intelligent Vulnerability Classification
+Vulnerabilities are automatically categorized by severity:
+- **Critical**: Remote code execution, privilege escalation, authentication bypass
+- **Medium**: Information disclosure, denial of service, moderate impact flaws
+- **Low**: Minor information leaks, configuration issues
+- **Info**: Informational findings, version disclosures
+
+### Advanced Reporting
+- **Raw Scan Results**: Complete nmap output with detailed findings
+- **Structured JSON Data**: Machine-readable vulnerability data with metadata
+- **XML Output**: Compatible with vulnerability management tools
+- **Master Summary Database**: Historical vulnerability tracking across all targets
+- **Comprehensive Reports**: Executive-style reports with severity breakdowns
+
+### Smart Target Management
+- Leverages existing ARP discovery for efficient target identification
+- Maintains separate tracking for vulnerability scans vs. port scans
+- Avoids duplicate vulnerability assessments
+- Configurable scan intervals for continuous monitoring
+
+### CVE Integration
+- Automatic CVE number extraction from scan results
+- CVE cross-referencing in vulnerability reports
+- Integration with public vulnerability databases
+- Timeline tracking for vulnerability disclosure dates
+
+---
+
 ## Output Files
 
 ### Wi-Fi Monitoring
@@ -187,14 +261,29 @@ Port scans include:
 └── scan_192.168.1.102_20250916_143301.txt
 ```
 
+### Vulnerability Scan Reports
+```
+/root/5t3wvulns/
+├── vuln_scanned_ips.json      # Tracking file for vulnerability-scanned clients
+├── vulnerability_summary.json # Master vulnerability database
+├── vuln_scan_192.168.1.100_20250916_143022.txt    # Raw nmap output
+├── vuln_scan_192.168.1.100_20250916_143022.xml    # XML format output
+├── vuln_data_192.168.1.100_20250916_143022.json   # Structured JSON data
+├── vulnerability_report_20250916_150000.txt       # Comprehensive report
+└── vulnerability_report_20250916_160000.txt       # Latest report
+```
+
 ---
 
 ## Security Considerations
 
 - **Root privileges** required for packet capture and monitor mode
 - Use responsibly and only on networks you own or have permission to test
-- Port scanning may trigger network security alerts
-- Consider legal implications before deployment
-- Monitor disk usage, especially for continuous capture modes
+- Port scanning and vulnerability assessment may trigger network security alerts
+- Vulnerability scans can be intrusive and may impact target system performance
+- Consider legal implications before deployment, especially for vulnerability scanning
+- Monitor disk usage, especially for continuous capture and scanning modes
+- Vulnerability scan results may contain sensitive security information - secure appropriately
+- Some vulnerability tests may cause service disruption on target systems
 
 ---

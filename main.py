@@ -6,13 +6,14 @@ import smtplib
 from email.mime.text import MIMEText
 from logging.handlers import SysLogHandler
 from collections import Counter
+import argparse
+import threading
 
 import pandas as pd
 import pyshark
 from scapy.all import sniff, Raw
 
 # --- Config ---
-INTERFACE = "wlan0"
 WINDOW_SEC = 5
 PACKET_THRESHOLD = 500
 UNIQUE_MAC_THRESHOLD = 50
@@ -24,6 +25,7 @@ ALERT_WEBHOOK = None
 ALERT_SYSLOG = "/dev/log"
 
 OUI_DB = {}
+packets_buffer = []
 
 # --- OUI Vendor Lookup ---
 def load_oui_db(path="oui.txt"):
@@ -81,9 +83,29 @@ def send_alert(msg: str):
         except Exception as e:
             logging.error(f"Syslog alert failed: {e}")
 
-# --- Capture with Scapy ---
-packets_buffer = []
+# --- Station/AP Tracking ---
+stations = set()        # Probe request senders (clients)
+access_points = set()   # Beacon frame source MACs (APs)
 
+def verbose_log(pkt_dict):
+    src = pkt_dict.get("src", "Unknown")
+    dst = pkt_dict.get("dst", "Unknown")
+    frame_type = pkt_dict.get("frame_type", "Unknown")
+    subtype = pkt_dict.get("subtype", "Unknown")
+    ssid = pkt_dict.get("ssid", "")
+    log_msg = f"[{frame_type.upper()}:{subtype}] {src} -> {dst}"
+    if ssid:
+        log_msg += f" SSID:{ssid}"
+    logging.info(log_msg)
+
+    # Track stations and APs
+    if frame_type == "mgmt":
+        if subtype == "probe-req":
+            stations.add(src)
+        elif subtype == "beacon":
+            access_points.add(src)  # <-- AP MAC comes from beacon source
+
+# --- Capture with Scapy (updated for verbose/probe info) ---
 def scapy_handler(pkt):
     try:
         ts = time.time()
@@ -92,17 +114,65 @@ def scapy_handler(pkt):
         length = len(pkt)
         payload = bytes(pkt[Raw]) if Raw in pkt else b""
 
-        packets_buffer.append({
+        pkt_dict = {
             "timestamp": ts,
             "src": src,
             "dst": dst,
             "length": length,
-            "entropy": shannon_entropy(payload)
-        })
-    except Exception:
-        pass
+            "entropy": shannon_entropy(payload),
+            "frame_type": "unknown",
+            "subtype": "unknown",
+            "ssid": ""
+        }
 
-# --- Window Analysis ---
+        # Detect probe requests and beacon frames
+        if pkt.haslayer("Dot11"):
+            fc_type = int(pkt.type)
+            fc_subtype = int(pkt.subtype)
+            if fc_type == 0:  # Management
+                pkt_dict["frame_type"] = "mgmt"
+                if fc_subtype == 4:
+                    pkt_dict["subtype"] = "probe-req"
+                    pkt_dict["ssid"] = pkt.info.decode(errors="ignore") if hasattr(pkt, "info") else ""
+                elif fc_subtype == 8:
+                    pkt_dict["subtype"] = "beacon"
+                    pkt_dict["ssid"] = pkt.info.decode(errors="ignore") if hasattr(pkt, "info") else ""
+                else:
+                    pkt_dict["subtype"] = str(fc_subtype)
+            elif fc_type == 1:
+                pkt_dict["frame_type"] = "ctrl"
+                pkt_dict["subtype"] = str(fc_subtype)
+            else:
+                pkt_dict["frame_type"] = "data"
+                pkt_dict["subtype"] = str(fc_subtype)
+
+        packets_buffer.append(pkt_dict)
+        verbose_log(pkt_dict)
+
+    except Exception as e:
+        logging.debug(f"scapy_handler error: {e}")
+
+# --- Sticky Summary ---
+
+def print_summary_sticky(total, unique_macs, avg_entropy, mgmt_ratio, stations, access_points):
+    # Move cursor to bottom
+    # Clear previous line
+    summary_lines = [
+        f"--- Window Summary ---",
+        f"Packets: {total}, Unique MACs: {unique_macs}, Avg Entropy: {avg_entropy:.2f}",
+        f"Management Ratio: {mgmt_ratio:.2%}",
+        f"Stations observed: {len(stations)}, APs observed: {len(access_points)}",
+        f"Stations: {stations}",
+        f"Access Points (MACs): {access_points}"
+    ]
+    # Clear previous summary (assume 6 lines)
+    print("\033[6A", end="")        # Move cursor up 6 lines
+    print("\033[J", end="")         # Clear from cursor to end of screen
+
+    for line in summary_lines:
+        print(line)
+
+# --- Window Analysis (verbose stats) ---
 def analyze_window(df: pd.DataFrame):
     if df.empty:
         return
@@ -110,26 +180,24 @@ def analyze_window(df: pd.DataFrame):
     total = len(df)
     unique_macs = df["src"].nunique()
     avg_entropy = df["entropy"].mean()
-
-    # --- Management subtype ratio (from PyShark) ---
-    mgmt_count = (df["frame_type"] == "mgmt").sum()
+    mgmt_count = (df.get("frame_type") == "mgmt").sum() if "frame_type" in df else 0
     mgmt_ratio = mgmt_count / total if total > 0 else 0
 
-    # --- Rules ---
+    # Alerts
     if total > PACKET_THRESHOLD:
         send_alert(f"High traffic: {total} packets in {WINDOW_SEC}s")
-
     if unique_macs > UNIQUE_MAC_THRESHOLD:
         send_alert(f"Too many unique MACs: {unique_macs}")
-
     if mgmt_ratio > MGMT_FRAME_THRESHOLD:
         send_alert(f"Suspicious management traffic: {mgmt_ratio:.2%}")
-
     if avg_entropy > ENTROPY_THRESHOLD:
         send_alert(f"High entropy traffic: {avg_entropy:.2f}")
 
+    # Sticky summary
+    print_summary_sticky(total, unique_macs, avg_entropy, mgmt_ratio, stations, access_points)
+
 # --- PyShark Enhancer ---
-def enrich_with_pyshark(interface=INTERFACE, duration=WINDOW_SEC):
+def enrich_with_pyshark(interface, duration=WINDOW_SEC):
     try:
         cap = pyshark.LiveCapture(interface=interface)
         cap.sniff(timeout=duration)
@@ -153,15 +221,12 @@ def enrich_with_pyshark(interface=INTERFACE, duration=WINDOW_SEC):
         return []
 
 # --- Monitor Loop ---
-def monitor(interface=INTERFACE):
+def monitor(interface):
     global packets_buffer
     load_oui_db()
 
-    logging.info("Starting WiFi monitor...")
-    sniff_thread = lambda: sniff(iface=interface, prn=scapy_handler, store=0)
-
-    import threading
-    t = threading.Thread(target=sniff_thread, daemon=True)
+    logging.info(f"Starting WiFi monitor on interface {interface}...")
+    t = threading.Thread(target=lambda: sniff(iface=interface, prn=scapy_handler, store=0), daemon=True)
     t.start()
 
     while True:
@@ -169,7 +234,6 @@ def monitor(interface=INTERFACE):
         df = pd.DataFrame(packets_buffer)
         subtype_info = enrich_with_pyshark(interface, duration=1)
 
-        # merge subtype info
         subtype_map = {src: (ftype, stype) for src, ftype, stype in subtype_info}
         if not df.empty:
             df["frame_type"] = df["src"].map(lambda x: subtype_map.get(x, ("unknown", None))[0])
@@ -181,4 +245,9 @@ def monitor(interface=INTERFACE):
 # --- Main ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    monitor()
+
+    parser = argparse.ArgumentParser(description="Rule-based WiFi monitor")
+    parser.add_argument("--interface", type=str, default="wlan1mon", help="Interface name to monitor")
+    args = parser.parse_args()
+
+    monitor(interface=args.interface)

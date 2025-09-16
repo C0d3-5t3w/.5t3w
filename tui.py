@@ -263,12 +263,17 @@ class WiFiMonitorTUI:
                 ("Port Scan", "SCAN"),
                 ("Vulnerability Assessment", "SCAN"), 
                 ("Deauth Attack", "ATTACK"),
-                ("Association Flood", "ATTACK")
+                ("Disassoc Attack", "ATTACK"),
+                ("Association Flood", "ATTACK"),
+                ("CSA Attack", "ATTACK"),
+                ("PMKID Retrieval", "ATTACK"),
+                ("Anon Reassoc Attack", "ATTACK"),
+                ("Rogue M2 (Directed)", "ATTACK"),
+                ("Rogue M2 (Undirected)", "ATTACK")
             ]
             op_name, op_type = random.choice(operations)
             self.add_operation(op_name)
             self.add_log_message(op_type, f"Started {op_name}")
-            
             # Schedule completion
             def complete_op():
                 time.sleep(random.uniform(2, 8))
@@ -278,8 +283,9 @@ class WiFiMonitorTUI:
                     self.stats["scans_completed"] += 1
                 elif op_type == "ATTACK":
                     self.stats["attacks_executed"] += 1
-                    self.stats["vulnerabilities_found"] += random.randint(0, 3)
-            
+                    # Only increment vulnerabilities for relevant attacks
+                    if op_name in ["Vulnerability Assessment", "PMKID Retrieval"]:
+                        self.stats["vulnerabilities_found"] += random.randint(0, 3)
             threading.Thread(target=complete_op, daemon=True).start()
 
     def update_display(self):
@@ -327,8 +333,9 @@ def create_interactive_menu():
         ("1", "🖥️  Live Dashboard", "Real-time monitoring interface"),
         ("2", "📊 Quick Stats", "Display current statistics"),
         ("3", "🎯 Target List", "Show discovered WiFi targets"),
-        ("4", "📋 Activity Log", "View recent system activity"),
-        ("5", "⚙️  System Info", "Display system information"),
+        ("4", "⚔️  Attack Control", "Launch WiFi attacks interactively"),
+        ("5", "📋 Activity Log", "View recent system activity"),
+        ("6", "⚙️  System Info", "Display system information"),
         ("q", "🚪 Exit", "Return to command line")
     ]
     
@@ -345,11 +352,113 @@ def create_interactive_menu():
     
     while True:
         choice = console.input("[bold cyan]Select option[/]: ").strip().lower()
-        
-        if choice in ["1", "2", "3", "4", "5", "q"]:
+        if choice in ["1", "2", "3", "4", "5", "6", "q"]:
             return choice
         else:
-            console.print("[red]Invalid choice. Please enter 1-5 or q.[/]")
+            console.print("[red]Invalid choice. Please enter 1-6 or q.[/]")
+
+
+def attack_control_menu():
+    """Interactive menu for launching WiFi attacks"""
+    from main import run_association_attacks, stations, access_points
+    console = Console()
+    attack_types = [
+        ("deauth", "Deauthentication"),
+        ("disassoc", "Disassociation"),
+        ("assoc_flood", "Association Flood"),
+        ("csa", "Channel Switch Announcement (CSA)"),
+        ("pmkid", "PMKID (M1) Retrieval"),
+        ("anon_reassoc", "Anonymous Reassociation"),
+        ("rogue_m2_directed", "Rogue M2 (Directed)"),
+        ("rogue_m2_undirected", "Rogue M2 (Undirected)")
+    ]
+    console.print(Panel("[bold cyan]WiFi Attack Control[/]", border_style="red"), justify="center")
+    # Select attack type
+    table = Table(box=box.ROUNDED, show_header=True)
+    table.add_column("#", style="bold cyan", width=4)
+    table.add_column("Attack Type", style="bright_white", width=25)
+    table.add_column("Description", style="dim", width=40)
+    for idx, (atype, desc) in enumerate(attack_types, 1):
+        table.add_row(str(idx), atype, desc)
+    console.print(table, justify="center")
+    atype_idx = console.input("[bold cyan]Select attack type (1-8)[/]: ").strip()
+    try:
+        atype_idx = int(atype_idx)
+        if not (1 <= atype_idx <= len(attack_types)):
+            raise ValueError
+    except Exception:
+        console.print("[red]Invalid attack type selection.[/]")
+        return
+    attack_type = attack_types[atype_idx-1][0]
+    # Select AP and/or station
+    ap_mac = None
+    station_mac = None
+    ssid = ""
+    if attack_type in ["deauth", "disassoc", "rogue_m2_directed", "rogue_m2_undirected", "pmkid"]:
+        aps = list(access_points)
+        if not aps:
+            console.print("[red]No APs detected. Start monitoring first.[/]")
+            return
+        for idx, ap in enumerate(aps, 1):
+            console.print(f"{idx}. {ap}")
+        ap_idx = console.input("[bold cyan]Select AP (number)[/]: ").strip()
+        try:
+            ap_mac = aps[int(ap_idx)-1]
+        except Exception:
+            console.print("[red]Invalid AP selection.[/]")
+            return
+    if attack_type in ["deauth", "disassoc", "rogue_m2_directed", "rogue_m2_undirected", "pmkid"]:
+        stations_list = list(stations)
+        if not stations_list:
+            console.print("[red]No stations detected. Start monitoring first.[/]")
+            return
+        for idx, sta in enumerate(stations_list, 1):
+            console.print(f"{idx}. {sta}")
+        sta_idx = console.input("[bold cyan]Select Station (number)[/]: ").strip()
+        try:
+            station_mac = stations_list[int(sta_idx)-1]
+        except Exception:
+            console.print("[red]Invalid station selection.[/]")
+            return
+    if attack_type in ["assoc_flood", "csa", "anon_reassoc"]:
+        aps = list(access_points)
+        if not aps:
+            console.print("[red]No APs detected. Start monitoring first.[/]")
+            return
+        for idx, ap in enumerate(aps, 1):
+            console.print(f"{idx}. {ap}")
+        ap_idx = console.input("[bold cyan]Select AP (number)[/]: ").strip()
+        try:
+            ap_mac = aps[int(ap_idx)-1]
+        except Exception:
+            console.print("[red]Invalid AP selection.[/]")
+            return
+    if attack_type in ["assoc_flood", "anon_reassoc", "rogue_m2_directed", "rogue_m2_undirected", "pmkid"]:
+        ssid = console.input("[bold cyan]Enter SSID (leave blank if unknown)[/]: ").strip()
+    count = console.input("[bold cyan]Number of frames to send (default 10)[/]: ").strip()
+    try:
+        count = int(count) if count else 10
+    except Exception:
+        count = 10
+    iface = console.input("[bold cyan]Monitor interface (default wlan1mon)[/]: ").strip() or "wlan1mon"
+    # Launch attack
+    console.print(f"[yellow]Launching {attack_type} attack...[/]")
+    try:
+        if attack_type in ["deauth", "disassoc"]:
+            run_association_attacks(iface, [attack_type], target_mac=station_mac, ap_mac=ap_mac, count=count)
+        elif attack_type == "assoc_flood":
+            run_association_attacks(iface, [attack_type], ap_mac=ap_mac, ssid=ssid, count=count)
+        elif attack_type == "csa":
+            run_association_attacks(iface, [attack_type], ap_mac=ap_mac, count=count)
+        elif attack_type == "pmkid":
+            run_association_attacks(iface, [attack_type], target_mac=station_mac, ap_mac=ap_mac, ssid=ssid, count=count)
+        elif attack_type == "anon_reassoc":
+            run_association_attacks(iface, [attack_type], ap_mac=ap_mac, ssid=ssid, count=count)
+        elif attack_type in ["rogue_m2_directed", "rogue_m2_undirected"]:
+            run_association_attacks(iface, [attack_type], target_mac=station_mac, ap_mac=ap_mac, ssid=ssid, count=count)
+        console.print(f"[green]Attack {attack_type} launched! Check logs for results.[/]")
+    except Exception as e:
+        console.print(f"[red]Attack failed: {e}[/]")
 
 def display_quick_stats():
     """Display quick statistics view"""
@@ -474,9 +583,11 @@ def main_tui():
             elif choice == "3":
                 display_targets()
             elif choice == "4":
+                attack_control_menu()
+            elif choice == "5":
                 console.print("[yellow]📋 Activity log feature coming soon![/]")
                 time.sleep(2)
-            elif choice == "5":
+            elif choice == "6":
                 display_system_info()
             elif choice == "q":
                 console.print("[cyan]👋 Goodbye![/]")

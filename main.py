@@ -854,7 +854,6 @@ def continuous_port_scanning(interval_minutes=30):
 
 # --- OUI Vendor Lookup ---
 def load_oui_db(path="oui.txt"):
-    global OUI_DB
     try:
         with open(path) as f:
             for line in f:

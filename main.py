@@ -262,10 +262,16 @@ if __name__ == "__main__":
                         help="Path to save all Wi-Fi traffic .pcap file")
     parser.add_argument("--capture-network", action="store_true",
                         help="Enable continuous full network capture to .pcap")
+    parser.add_argument("--silence", action="store_true",
+                        help="Suppress terminal output for monitor and network capture")
     args = parser.parse_args()
-
     if os.geteuid() != 0:
         logging.warning("[!] Root permissions recommended for packet capture")
+
+    # --- Logging ---
+
+    if args.silence:
+        logging.getLogger().setLevel(logging.ERROR)  # suppress info/debug logs
 
     # --- Start handshake capture ---
     if args.capture_handshakes:

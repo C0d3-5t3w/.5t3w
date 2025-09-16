@@ -106,7 +106,10 @@ A **small and portable, rule-based Wi-Fi monitoring, network capture, port scann
    ```bash
    sudo airmon-ng start wlan1
    ```
-
+3. ***Add .5t3w as an alias to .bashrc to dodge typeing it out***
+   ```bash
+   alias .5t3w="source ~/.5t3w/bin/activate && sudo python3 ~/.5t3w/main.py --tui"
+   ```
 ---
 
 ## Usage

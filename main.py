@@ -39,12 +39,12 @@ stations = set()
 access_points = set()
 
 # --- Port Scanning Configuration ---
-SCAN_REPORTS_DIR = "/root/5t3wportscans"
+SCAN_REPORTS_DIR = "~/5t3wstuff/5t3wportscans"
 SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
 NMAP_ARGS = ["-sV", "-sC", "-O", "--script=vuln", "-T4"]  # Comprehensive scan
 
 # --- Vulnerability Scanning Configuration ---
-VULN_REPORTS_DIR = "/root/5t3wvulns"
+VULN_REPORTS_DIR = "~/5t3wstuff/5t3wvulns"
 VULN_SCANNED_IPS_FILE = os.path.join(VULN_REPORTS_DIR, "vuln_scanned_ips.json")
 VULN_SUMMARY_FILE = os.path.join(VULN_REPORTS_DIR, "vulnerability_summary.json")
 NMAP_VULN_ARGS = [
@@ -54,7 +54,7 @@ NMAP_VULN_ARGS = [
 ]  # Comprehensive vulnerability scan
 
 # --- Association Attack Configuration ---
-ASSOCIATION_ATTACK_DIR = "/root/5t3wattacks"
+ASSOCIATION_ATTACK_DIR = "~/5t3wstuff/5t3wattacks"
 ASSOCIATION_TARGETS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_targets.json")
 ASSOCIATION_LOGS_FILE = os.path.join(ASSOCIATION_ATTACK_DIR, "attack_logs.json")
 
@@ -1093,17 +1093,17 @@ if __name__ == "__main__":
                         help="Interface for Wi-Fi monitoring")
     parser.add_argument("--network-iface", type=str, default="wlan0",
                         help="Interface for network capture")
-    parser.add_argument("--handshake-out", type=str, default="/root/5t3whandshakes.pcap",
+    parser.add_argument("--handshake-out", type=str, default="~/5t3wstuff/5t3whandshakes.pcap",
                         help="Path to save handshake .pcap")
     parser.add_argument("--capture-handshakes", action="store_true",
                         help="Enable continuous handshake capture")
-    parser.add_argument("--network-out", type=str, default="/root/5t3wnet.pcap",
+    parser.add_argument("--network-out", type=str, default="~/5t3wstuff/5t3wnet.pcap",
                         help="Path to save network capture .pcap")
     parser.add_argument("--capture-network", action="store_true",
                         help="Enable continuous network capture")
     parser.add_argument("--silence", action="store_true",
                         help="Suppress terminal output")
-    parser.add_argument("--hc22000-dir", type=str, default="/root/5t3whc22000s/",
+    parser.add_argument("--hc22000-dir", type=str, default="~/5t3wstuff/5t3whc22000s/",
                         help="Folder to save hc22000 files")
     parser.add_argument("--port-scan", action="store_true",
                         help="Enable port scanning of new ARP clients")
@@ -1111,7 +1111,7 @@ if __name__ == "__main__":
                         help="Interval in minutes for continuous port scanning (default: 30)")
     parser.add_argument("--scan-once", action="store_true",
                         help="Perform a single port scan and exit")
-    parser.add_argument("--scan-reports-dir", type=str, default="/root/5t3wportscans",
+    parser.add_argument("--scan-reports-dir", type=str, default="~/5t3wstuff/5t3wportscans",
                         help="Directory to save port scan reports")
     parser.add_argument("--vuln-scan", action="store_true",
                         help="Enable vulnerability scanning of new ARP clients")
@@ -1119,7 +1119,7 @@ if __name__ == "__main__":
                         help="Interval in minutes for continuous vulnerability scanning (default: 60)")
     parser.add_argument("--vuln-scan-once", action="store_true",
                         help="Perform a single vulnerability scan and exit")
-    parser.add_argument("--vuln-reports-dir", type=str, default="/root/5t3wvulns",
+    parser.add_argument("--vuln-reports-dir", type=str, default="~/5t3wstuff/5t3wvulns",
                         help="Directory to save vulnerability scan reports")
     parser.add_argument("--generate-vuln-report", action="store_true",
                         help="Generate vulnerability report from existing scan data and exit")
@@ -1139,7 +1139,7 @@ if __name__ == "__main__":
                         help="Interval in minutes for continuous attacks (default: 10)")
     parser.add_argument("--attack-once", action="store_true",
                         help="Perform single attack and exit")
-    parser.add_argument("--attack-logs-dir", type=str, default="/root/5t3wattacks",
+    parser.add_argument("--attack-logs-dir", type=str, default="~/5t3wstuff/5t3wattacks",
                         help="Directory to save attack logs")
     parser.add_argument("--tui", action="store_true",
                         help="Launch Terminal User Interface (TUI) mode")

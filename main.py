@@ -458,7 +458,6 @@ if __name__ == "__main__":
         logging.getLogger().setLevel(logging.ERROR)
 
     # Update global scan reports directory
-    global SCAN_REPORTS_DIR, SCANNED_IPS_FILE
     SCAN_REPORTS_DIR = args.scan_reports_dir
     SCANNED_IPS_FILE = os.path.join(SCAN_REPORTS_DIR, "scanned_ips.json")
 
@@ -467,7 +466,7 @@ if __name__ == "__main__":
         logging.info("Performing single port scan...")
         scan_new_clients()
         logging.info("Single port scan completed, exiting.")
-        return
+        exit()
     
     if args.port_scan:
         logging.info(f"Starting continuous port scanning with {args.scan_interval} minute intervals")
